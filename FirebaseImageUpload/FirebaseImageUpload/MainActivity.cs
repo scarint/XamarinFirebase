@@ -11,7 +11,6 @@ using Java.IO;
 using Firebase.Storage;
 using Firebase;
 using Android.Gms.Tasks;
-using Java.Lang;
 
 namespace FirebaseImageUpload
 {
@@ -20,8 +19,10 @@ namespace FirebaseImageUpload
         IOnProgressListener, IOnSuccessListener, IOnFailureListener
     {
         private Button          btnChoose, 
-                                btnUpload;
-        private ImageView       imgView;
+                                btnUpload,
+                                btnDownload;
+        private ImageView       imgView,
+                                imgView2;
         private Android.Net.Uri filePath;
         private const int       PICK_IMAGE_REQUEST = 71;
 
@@ -29,6 +30,12 @@ namespace FirebaseImageUpload
 
         FirebaseStorage storage;
         StorageReference storageRef;
+
+        private int TASK = 0 ,
+                    UPLOAD = 1,
+                    DOWNLOAD = 2;
+
+        string guid = Guid.NewGuid().ToString();
 
         protected override void OnCreate(Bundle savedInstanceState)
         {
@@ -42,10 +49,11 @@ namespace FirebaseImageUpload
             storage = FirebaseStorage.Instance;
             storageRef = storage.GetReferenceFromUrl("gs://ontargetbeta.appspot.com");
 
-
             btnChoose = FindViewById<Button>(Resource.Id.btnChoose);
             btnUpload = FindViewById<Button>(Resource.Id.btnUpload);
+            btnDownload = FindViewById<Button>(Resource.Id.btnDownload);
             imgView = FindViewById<ImageView>(Resource.Id.imgView);
+            imgView2 = FindViewById<ImageView>(Resource.Id.imgView2);
 
             btnChoose.Click += delegate {
                 ChooseImage();
@@ -54,18 +62,43 @@ namespace FirebaseImageUpload
             btnUpload.Click += delegate {
                 UploadImage();
             };
+
+            btnDownload.Click += delegate
+            {
+                DonloadImage();
+            };
+        }
+
+        private void DonloadImage()
+        {
+            TASK = DOWNLOAD;
+            progressDialog = new ProgressDialog(this);
+            progressDialog.SetTitle("Downloading");
+            progressDialog.Window.SetType(Android.Views.WindowManagerTypes.SystemAlert);
+            progressDialog.Show();
+
+            var images = storageRef.Child("images/" + guid);
+
+            Java.IO.File file = new Java.IO.File(GetExternalFilesDir(null), guid + ".jpg");
+
+            images.GetFile(file)
+                    .AddOnProgressListener(this)
+                    .AddOnSuccessListener(this)
+                    .AddOnFailureListener(this);
         }
 
         private void UploadImage()
         {
             if (filePath != null)
             {
+                TASK = UPLOAD;
+
                 progressDialog = new ProgressDialog(this);
                 progressDialog.SetTitle("Uploading");
                 progressDialog.Window.SetType(Android.Views.WindowManagerTypes.SystemAlert);
                 progressDialog.Show();
 
-                var images = storageRef.Child("images/" + Guid.NewGuid().ToString());
+                var images = storageRef.Child("images/" + guid);
                 images.PutFile(filePath)
                     .AddOnProgressListener(this)
                     .AddOnSuccessListener(this)
@@ -94,6 +127,8 @@ namespace FirebaseImageUpload
                 {
                     Bitmap bitmap = MediaStore.Images.Media.GetBitmap(ContentResolver, filePath);
                     imgView.SetImageBitmap(bitmap);
+
+                    TASK = 0;
                 }
                 catch (IOException ex)
                 {
@@ -104,15 +139,42 @@ namespace FirebaseImageUpload
 
         public void OnProgress(Java.Lang.Object snapshot)
         {
-            var taskSnapShot = (UploadTask.TaskSnapshot)snapshot;
-            double progress = (100.0 * taskSnapShot.BytesTransferred / taskSnapShot.TotalByteCount);
-            progressDialog.SetMessage("Uploaded " + (int)progress + "%");
+            if (TASK == UPLOAD)
+            {
+                var taskSnapShot = (UploadTask.TaskSnapshot)snapshot;
+                double progress = (100.0 * taskSnapShot.BytesTransferred / taskSnapShot.TotalByteCount);
+                progressDialog.SetMessage("Uploaded " + (int)progress + "%");
+            }
+            if (TASK == DOWNLOAD)
+            {
+
+                var taskSnapShot = (FileDownloadTask.TaskSnapshot)snapshot;
+                double progress = (100.0 * taskSnapShot.BytesTransferred / taskSnapShot.TotalByteCount);
+                progressDialog.SetMessage("Downloaded " + (int)progress + "%");
+            }
+            
         }
 
         public void OnSuccess(Java.Lang.Object result)
         {
-            progressDialog.Dismiss();
-            Toast.MakeText(this, "Uploaded", ToastLength.Short).Show();
+            if (TASK == UPLOAD)
+            {
+                progressDialog.Dismiss();
+                Toast.MakeText(this, "Uploaded", ToastLength.Short).Show();
+            }
+            else // TASK == DOWNLOAD
+            {
+                progressDialog.Dismiss();
+                Toast.MakeText(this, "Downloaded", ToastLength.Short).Show();
+
+                Java.IO.File file = new Java.IO.File(GetExternalFilesDir(null), guid + ".jpg");
+
+                BitmapFactory.Options options = new BitmapFactory.Options();
+                options.InPreferredConfig = Bitmap.Config.Argb8888;
+                Bitmap bitmap = BitmapFactory.DecodeFile(file.Path, options);
+
+                imgView2.SetImageBitmap(bitmap);
+            }
         }
 
         public void OnFailure(Java.Lang.Exception e)
